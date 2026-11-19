@@ -9,10 +9,12 @@ import urllib.request
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
+from .skills import SkillRegistry
+
 
 
 DOC_NAMES = ("AGENTS.md", "README.md", "pyproject.toml", "package.json")
-HELP_TEXT = "/help, /memory, /session, /reset, /exit"
+HELP_TEXT = "/help, /memory, /session, /skills, /reset, /exit"
 WELCOME_ART = (
     "/\\     /\\\\",
     "{  `---'  }",
@@ -235,6 +237,8 @@ class MiniAgent:
         depth=0,
         max_depth=1,
         read_only=False,
+        skills_dir="skill",
+        skill_threshold=0.15,
     ):
         self.model_client = model_client
         self.workspace = workspace
@@ -246,6 +250,12 @@ class MiniAgent:
         self.depth = depth
         self.max_depth = max_depth
         self.read_only = read_only
+        self.skills = SkillRegistry(
+            self.root / skills_dir,
+            self.root / ".mini-coding-agent" / "logs" / "skills.jsonl",
+            skill_threshold,
+        )
+        self.active_skills = {}
         self.session = session or {
             "id": datetime.now().strftime("%Y%m%d-%H%M%S") + "-" + uuid.uuid4().hex[:6],
             "created_at": now(),
@@ -317,6 +327,12 @@ class MiniAgent:
                 "description": "Replace one exact text block in a file.",
                 "run": self.tool_patch_file,
             },
+            "use_skill": {
+                "schema": {"name": "str"},
+                "risky": False,
+                "description": "Load a skill's instructions. Available: " + (", ".join(self.skills.skills) or "none"),
+                "run": self.tool_use_skill,
+            },
         }
         if self.depth < self.max_depth:
             tools["delegate"] = {
@@ -344,6 +360,7 @@ class MiniAgent:
                 '<tool name="write_file" path="binary_search.py"><content>def binary_search(nums, target):\n    return -1\n</content></tool>',
                 '<tool name="patch_file" path="binary_search.py"><old_text>return -1</old_text><new_text>return mid</new_text></tool>',
                 '<tool>{"name":"run_shell","args":{"command":"uv run --with pytest python -m pytest -q","timeout":20}}</tool>',
+                '<tool>{"name":"use_skill","args":{"name":"pr-review"}}</tool>',
                 "<final>Done.</final>",
             ]
         )
@@ -364,11 +381,13 @@ class MiniAgent:
             "- New files should be complete and runnable, including obvious imports.",
             "- Do not repeat the same tool call with the same arguments if it did not help. Choose a different tool or return a final answer.",
             "- Required tool arguments must not be empty. Do not call read_file, write_file, patch_file, run_shell, or delegate with args={}.",
+            "- If the task matches an available skill, call use_skill with its name, then follow the Active skill instructions.",
         ])
         return "\n\n".join([
             "You are Mini-Coding-Agent, a small local coding agent running through Ollama.",
             "Rules:\n" + rules,
             "Tools:\n" + tool_text,
+            "Skills:\n" + (self.skills.describe() if self.skills.skills else "- none"),
             "Valid response examples:\n" + examples,
             self.workspace.text(),
         ])
@@ -383,6 +402,45 @@ class MiniAgent:
             "- notes:",
             notes,
         ])
+
+    ####################################
+    #### 7) Agent Skills Component #####
+    ####################################
+    def skill_text(self):
+        if not self.active_skills:
+            return ""
+        parts = [
+            f"Active skill: {skill['name']}\nFollow these instructions step by step:\n{skill['body']}"
+            for skill in self.active_skills.values()
+        ]
+        return "\n\n".join(parts)
+
+    def activate_skill(self, name, reason):
+        if name in self.active_skills:
+            return False
+        skill = self.skills.skills[name]
+        self.active_skills[name] = skill
+        self.skills.log({
+            "event": "skill_executed",
+            "skill": name,
+            "reason": reason,  # prompt_match | tool_request
+            "score": self.skills.last_scores.get(name) if reason == "prompt_match" else None,
+            "path": skill["path"],
+        })
+        self.session.setdefault("skills_used", []).append(
+            {"skill": name, "reason": reason, "created_at": now()}
+        )
+        self.session_path = self.session_store.save(self.session)
+        print(f"[skill] {name} activated ({reason})")
+        return True
+
+    def tool_use_skill(self, args):
+        name = str(args.get("name", "")).strip()
+        if name not in self.skills.skills:
+            raise ValueError(f"unknown skill '{name}'")
+        if not self.activate_skill(name, reason="tool_request"):
+            return f"skill '{name}' is already active."
+        return f"skill '{name}' loaded. Follow its instructions."
 
     #####################################################
     #### 4) Context Reduction And Output Management #####
@@ -420,12 +478,14 @@ class MiniAgent:
     #### 2) Prompt Shape And Cache Reuse (Continued) #######
     ########################################################
     def prompt(self, user_message):
-        return "\n\n".join([
+        parts = [
             self.prefix,
             self.memory_text(),
+            self.skill_text(),
             "Transcript:\n" + self.history_text(),
             "Current user request:\n" + user_message,
-        ])
+        ]
+        return "\n\n".join(part for part in parts if part)
 
     ###############################################
     #### 5) Session Memory (Continued) ###########
@@ -447,6 +507,9 @@ class MiniAgent:
         if not memory["task"]:
             memory["task"] = clip(user_message.strip(), 300)
         self.record({"role": "user", "content": user_message, "created_at": now()})
+                self.active_skills = {}
+        for name in self.skills.match(user_message):
+            self.activate_skill(name, reason="prompt_match")
 
         tool_steps = 0
         attempts = 0
@@ -529,6 +592,7 @@ class MiniAgent:
             "run_shell": '<tool>{"name":"run_shell","args":{"command":"uv run --with pytest python -m pytest -q","timeout":20}}</tool>',
             "write_file": '<tool name="write_file" path="binary_search.py"><content>def binary_search(nums, target):\n    return -1\n</content></tool>',
             "patch_file": '<tool name="patch_file" path="binary_search.py"><old_text>return -1</old_text><new_text>return mid</new_text></tool>',
+            "use_skill": '<tool>{"name":"use_skill","args":{"name":"pr-review"}}</tool>',
             "delegate": '<tool>{"name":"delegate","args":{"task":"inspect README.md","max_steps":3}}</tool>',
         }
         return examples.get(name, "")
@@ -589,6 +653,12 @@ class MiniAgent:
             count = text.count(old_text)
             if count != 1:
                 raise ValueError(f"old_text must occur exactly once, found {count}")
+            return
+
+        if name == "use_skill":
+            skill_name = str(args.get("name", "")).strip()
+            if skill_name not in self.skills.skills:
+                raise ValueError(f"unknown skill '{skill_name}'; available: {', '.join(self.skills.skills) or 'none'}")
             return
 
         if name == "delegate":
@@ -715,6 +785,7 @@ class MiniAgent:
         return text[start:end]
 
     def reset(self):
+        self.active_skills = {}
         self.session["history"] = []
         self.session["memory"] = {"task": "", "files": [], "notes": []}
         self.session_store.save(self.session)
@@ -931,6 +1002,8 @@ def build_agent(args):
             approval_policy=args.approval,
             max_steps=args.max_steps,
             max_new_tokens=args.max_new_tokens,
+            skills_dir=args.skills_dir,
+            skill_threshold=args.skill_threshold,
         )
     return MiniAgent(
         model_client=model,
@@ -939,6 +1012,8 @@ def build_agent(args):
         approval_policy=args.approval,
         max_steps=args.max_steps,
         max_new_tokens=args.max_new_tokens,
+        skills_dir=args.skills_dir,
+        skill_threshold=args.skill_threshold,
     )
 
 
@@ -963,6 +1038,10 @@ def build_arg_parser():
     parser.add_argument("--max-new-tokens", type=int, default=512, help="Maximum model output tokens per step.")
     parser.add_argument("--temperature", type=float, default=0.2, help="Sampling temperature sent to Ollama.")
     parser.add_argument("--top-p", type=float, default=0.9, help="Top-p sampling value sent to Ollama.")
+
+        parser.add_argument("--skills-dir", default="skill", help="Folder containing skills (skill/<name>/skill.md).")
+    parser.add_argument("--skill-threshold", type=float, default=0.15, help="Minimum similarity to trigger a skill.")
+
     return parser
 
 
@@ -999,6 +1078,9 @@ def main(argv=None):
             continue
         if user_input == "/memory":
             print(agent.memory_text())
+            continue
+        if user_input == "/skills":
+            print(agent.skills.describe())
             continue
         if user_input == "/session":
             print(agent.session_path)
