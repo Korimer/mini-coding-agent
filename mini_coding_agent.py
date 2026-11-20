@@ -1,3 +1,4 @@
+# pyright: basic
 import argparse
 import json
 import re
@@ -9,7 +10,7 @@ import urllib.request
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from .skills import SkillRegistry
+from skills import SkillRegistry
 
 
 
@@ -507,7 +508,7 @@ class MiniAgent:
         if not memory["task"]:
             memory["task"] = clip(user_message.strip(), 300)
         self.record({"role": "user", "content": user_message, "created_at": now()})
-                self.active_skills = {}
+        self.active_skills = {}
         for name in self.skills.match(user_message):
             self.activate_skill(name, reason="prompt_match")
 
@@ -1039,7 +1040,7 @@ def build_arg_parser():
     parser.add_argument("--temperature", type=float, default=0.2, help="Sampling temperature sent to Ollama.")
     parser.add_argument("--top-p", type=float, default=0.9, help="Top-p sampling value sent to Ollama.")
 
-        parser.add_argument("--skills-dir", default="skill", help="Folder containing skills (skill/<name>/skill.md).")
+    parser.add_argument("--skills-dir", default="skill", help="Folder containing skills (skill/<name>/skill.md).")
     parser.add_argument("--skill-threshold", type=float, default=0.15, help="Minimum similarity to trigger a skill.")
 
     return parser
