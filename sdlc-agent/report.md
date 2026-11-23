@@ -41,12 +41,25 @@ The `tests/test_mini_coding_agent.py` file (pytest, not installed here) was run 
 
 Note: with `--approval never` (or `ask` and a denial) `write_file` is refused, so the SDLC skill needs `--approval auto`.
 
+### Lab 4 run with a real model (qwen3.5:9b)
+Run on a MacBook Pro (48 GB) with `python3.12 mini_coding_agent.py --model qwen3.5:9b --max-steps 20 --max-new-tokens 2048`, approval `ask`. Logs: `lab4_run/logs/skills.jsonl` and `lab4_run/logs/hooks.jsonl`.
+
+Similarity check for the Lab 4 prompt (threshold 0.15): q-learning 0.45, gridworld-env 0.33, code-review 0.0, so both Lab 5 skills were executed (`prompt_match`). Unrelated prompts in the same session selected no skill.
+
+1. First run: the model called `use_skill` with empty arguments 19 times and hit the step limit. Workaround: the prompt said the skills were already active.
+2. Second run: the model wrote `q_env.py` and `q_learning.py`, with three bugs traced to skill wording: the grid was stored as strings, Q was updated for the previous move (the skill's pitfall mentioned `prev_state`/`prev_action`), and Q was local to `train()`. The skills were fixed: the grid is given as a Python list of lists, Q is module-level, and Q is updated for the move just made.
+3. Third run: `q_learning.py` was correct. `q_env.py` read the grid upside down (`GRID_LITERAL[y][x]`). When asked, the agent fixed the main lookup, then looped on non-matching `patch_file` calls. The last two indexing lines and the arrow labels were fixed by hand.
+
+Result: `python3.12 q_learning.py` prints the greedy path (0,3) → (0,2) → (0,1) → (1,1) → (2,1) → (3,1) → (3,0): 6 moves (the shortest possible), avoiding the trap and the wall.
+
+Open issue: invalid tool calls (empty arguments, non-matching patches) fail validation before the repeated-call guard runs, so they never trigger it and can use up the whole step budget.
+
 ## Success criteria
 - [x] C1: prompt triggers the right skills, unrelated prompt triggers none (table above, unit tests).
 - [x] C2: `similarity_check` and `skill_executed` lines are written (unit tests, scripted run).
 - [x] C3: `use_skill` loads a skill mid-run; unknown name is an error (unit tests).
 - [ ] C4: Trigger and file writing verified with a scripted model only. Not yet verified that a real Ollama model follows the skill and writes all five files within the step budget.
-- [ ] C5: Lab 4 not yet run through the agent. It needs a running Ollama model, which was not available.
+- [x] C5: Lab 4 run through the agent with qwen3.5:9b. The agent wrote `q_env.py` and `q_learning.py` from the skills; two indexing lines were fixed by hand (see "Lab 4 run with a real model" above).
 - [x] C6: Standard library only.
 
 ## Deviations and open issues
