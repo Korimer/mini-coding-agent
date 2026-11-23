@@ -5,6 +5,6 @@
 - [x] T4: `sdlc` skill (verify: RealSkillFolderTests, scripted run writes files to `sdlc/`)
 - [x] T5: Fix packaging, add `skills` to `py-modules` in `pyproject.toml` (verify: `grep py-modules pyproject.toml`)
 - [x] T6: Write the five stage files to `sdlc/` (verify: `ls sdlc`)
-- [ ] T7: Solve Lab 4 through the agent with a real Ollama model (verify: `q_env.py` and `q_learning.py` exist, policy grid and path printed, `skills.jsonl` shows `q-learning` and `gridworld-env` executed)
+- [x] T7: Solve Lab 4 through the agent with a real Ollama model (verify: `q_env.py` and `q_learning.py` exist, policy grid and path printed, `skills.jsonl` shows `q-learning` and `gridworld-env` executed)
 - [x] T8: `post_run` hook that prints the run summary (verify: HookTests in `tests.py`, `hooks.jsonl` shows `print_run_summary` ok)
-- [ ] T9: Update `report.md` with the T7 evidence
+- [x] T9: Update `report.md` with the T7 evidence
