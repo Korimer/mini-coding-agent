@@ -25,6 +25,58 @@ The model backend is currently based on Ollama.
 
 **[The detailed tutorial: Components of a Coding Agent](https://magazine.sebastianraschka.com/p/components-of-a-coding-agent)**
 
+&nbsp;
+## Group 15 addition: Agent Skills component (CS440)
+
+This fork adds a seventh component, **agent skills**, and a `post_run` hook. The rest of this README describes the original agent; this section covers what changed.
+
+### Project structure
+```
+mini_coding_agent.py     agent, with skills wired in (use_skill tool, /skills command, --skills-dir, --skill-threshold)
+skills.py                skill registry: discovery, similarity check, JSONL logging
+hooks.py                 post_run hook: prints a run summary, logs to hooks.jsonl
+skill/<name>/skill.md    skills: frontmatter (name, description), then instructions
+  code-review/           review changed Python code without editing it
+  grid-world/            build the 4x4 vacuum grid world (q_env.py)
+  q-learning/            tabular Q-learning for the vacuum robot (q_learning.py)
+  sdlc/                  write the SDLC stage documents
+sdlc-agent/              SDLC documents for building the skills component
+sdlc-lab4/               SDLC documents for the Lab 4 solution
+q_env.py, q_learning.py  Lab 4 solution written by the agent using the skills
+lab4_run/logs/           logs from that run (skills.jsonl, hooks.jsonl)
+tests.py                 unit tests for skills and hooks
+```
+
+### How a skill is triggered
+1. At startup, the agent reads every `skill/<name>/skill.md`.
+2. For each prompt, it computes the cosine similarity between the prompt's words and each skill's name and description (bag of words, common words removed). Every skill scoring at least the threshold (default 0.15) is loaded into the prompt.
+3. During a run, the model can also load a skill by name with the `use_skill` tool.
+
+### How to run
+Requires Python 3.10 or newer and Ollama.
+```bash
+ollama pull qwen3.5:9b
+python3 mini_coding_agent.py --model qwen3.5:9b --max-steps 20 --max-new-tokens 2048
+```
+- `/skills` lists the skills the agent found.
+- `--skills-dir` (default `skill`), `--skill-threshold` (default 0.15), `--no-hooks` (turn off the run summary).
+- Writing whole files needs a larger `--max-steps` and `--max-new-tokens` than the defaults.
+
+### Logs
+Written to `.mini-coding-agent/logs/` in the working folder. That folder is gitignored, so a copy from the Lab 4 run is in `lab4_run/logs/`.
+- `skills.jsonl`: `similarity_check` events (prompt, score per skill, threshold, selected skills) and `skill_executed` events (skill, reason, score, path).
+- `hooks.jsonl`: one event per hook run.
+
+### Lab 4 with the mini agent
+Prompt used:
+> Solve Lab 4: build the 4x4 vacuum robot grid world and train the robot with tabular Q-learning, using epsilon-greedy exploration, then print the greedy path. The skills are already active, so do not call use_skill. Start by writing q_env.py.
+
+`python3 q_learning.py` then prints the learned policy and the greedy path, which reaches the recharge spot in 6 moves. The full run history, including what had to be fixed, is in `sdlc-agent/report.md`.
+
+### Tests
+```bash
+python3 -m unittest tests
+```
 
 &nbsp;
 ## Six Core Components
