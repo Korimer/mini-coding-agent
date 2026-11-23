@@ -36,7 +36,9 @@ def _now():
 
 class SkillRegistry:
     def __init__(self, root, log_path, threshold=0.15):
-        self.root = Path(root)
+        # root may be one folder or a list (nearest first); the first folder defining a name wins
+        self.roots = [Path(r) for r in (root if isinstance(root, (list, tuple)) else [root])]
+        self.root = self.roots[0]
         self.log_path = Path(log_path)
         self.threshold = float(threshold)
         self.last_scores = {}
@@ -46,9 +48,14 @@ class SkillRegistry:
     # ---------- discovery ----------
     def discover(self):
         skills = {}
-        if not self.root.is_dir():
-            return skills
-        for entry in sorted(self.root.iterdir()):
+        for root in self.roots:
+            self._discover_in(root, skills)
+        return skills
+
+    def _discover_in(self, root, skills):
+        if not root.is_dir():
+            return
+        for entry in sorted(root.iterdir()):
             if entry.is_dir():
                 md = next((p for p in sorted(entry.iterdir()) if p.name.lower() == "skill.md"), None)
                 fallback = entry.name
@@ -60,13 +67,14 @@ class SkillRegistry:
                 continue
             meta, body = self.parse_frontmatter(md.read_text(encoding="utf-8", errors="replace"))
             name = meta.get("name") or fallback
+            if name in skills:
+                continue
             skills[name] = {
                 "name": name,
                 "description": meta.get("description", ""),
                 "path": str(md),
                 "body": body.strip(),
             }
-        return skills
 
     @staticmethod
     def parse_frontmatter(text):
@@ -133,8 +141,8 @@ class SkillRegistry:
 
     def describe(self):
         if not self.skills:
-            return f"No skills found in {self.root}"
-        lines = [f"Skills in {self.root} (threshold {self.threshold}):"]
+            return f"No skills found in {', '.join(map(str, self.roots))}"
+        lines = [f"Skills in {', '.join(map(str, self.roots))} (threshold {self.threshold}):"]
         for name, skill in self.skills.items():
             lines.append(f"- {name}: {skill['description']}")
         return "\n".join(lines)

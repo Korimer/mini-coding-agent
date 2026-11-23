@@ -246,7 +246,9 @@ class MiniAgent:
     ):
         self.model_client = model_client
         self.workspace = workspace
-        self.root = Path(workspace.repo_root)
+        # Anchor to --cwd, not the git top-level: when the project is a subfolder of a
+        # larger repo, skill/, sdlc/ and the file tools must resolve against the subfolder.
+        self.root = Path(workspace.cwd)
         self.session_store = session_store
         self.approval_policy = approval_policy
         self.max_steps = max_steps
@@ -255,7 +257,7 @@ class MiniAgent:
         self.max_depth = max_depth
         self.read_only = read_only
         self.skills = SkillRegistry(
-            self.root / skills_dir,
+            self.skill_roots(workspace, skills_dir),
             self.root / ".mini-coding-agent" / "logs" / "skills.jsonl",
             skill_threshold,
         )
@@ -273,6 +275,17 @@ class MiniAgent:
         self.tools = self.build_tools()
         self.prefix = self.build_prefix()
         self.session_path = self.session_store.save(self.session)
+
+    @staticmethod
+    def skill_roots(workspace, skills_dir):
+        """skill/ in --cwd first, then in each parent folder up to the git root."""
+        cwd, top = Path(workspace.cwd).resolve(), Path(workspace.repo_root).resolve()
+        roots = [cwd / skills_dir]
+        for parent in cwd.parents:
+            if top not in (parent, *parent.parents):
+                break
+            roots.append(parent / skills_dir)
+        return roots
 
     @classmethod
     def from_session(cls, model_client, workspace, session_store, session_id, **kwargs):
@@ -319,7 +332,7 @@ class MiniAgent:
             "run_shell": {
                 "schema": {"command": "str", "timeout": "int=20"},
                 "risky": True,
-                "description": "Run a shell command in the repo root.",
+                "description": "Run a shell command in the workspace (--cwd).",
                 "run": self.tool_run_shell,
             },
             "write_file": {
@@ -535,9 +548,14 @@ class MiniAgent:
         if not memory["task"]:
             memory["task"] = clip(user_message.strip(), 300)
         self.record({"role": "user", "content": user_message, "created_at": now()})
+        previous = list(self.active_skills)
         self.active_skills = {}
-        for name in self.skills.match(user_message):
+        matched = self.skills.match(user_message)
+        for name in matched:
             self.activate_skill(name, reason="prompt_match")
+        if not matched:  # follow-ups like "write those changes" keep the previous request's skills
+            for name in previous:
+                self.activate_skill(name, reason="carried_over")
 
         tool_steps = 0
         attempts = 0
@@ -740,6 +758,14 @@ class MiniAgent:
                 return "final", final
             return "retry", MiniAgent.retry_notice("model returned an empty <final> answer")
         raw = raw.strip()
+        echoed = re.fullmatch(r"\[tool:(?P<name>[A-Za-z_]\w*)\]\s*(?P<args>\{.*\})", raw, re.S)
+        if echoed:  # the model copied the transcript format "[tool:name] {json}"
+            try:
+                args = json.loads(echoed.group("args"))
+            except Exception:
+                return "retry", MiniAgent.retry_notice("model returned malformed tool JSON")
+            if isinstance(args, dict):
+                return "tool", {"name": echoed.group("name"), "args": args}
         if raw:
             return "final", raw
         return "retry", MiniAgent.retry_notice("model returned an empty response")
@@ -832,11 +858,23 @@ class MiniAgent:
 
     def path(self, raw_path):
         path = Path(raw_path)
-        path = path if path.is_absolute() else self.root / path
+        if not path.is_absolute():
+            path = self.root / self.strip_cwd_prefix(path)
         resolved = path.resolve()
         if not self.path_is_within_root(resolved):
             raise ValueError(f"path escapes workspace: {raw_path}")
         return resolved
+
+    def strip_cwd_prefix(self, path):
+        """git status shows paths from the git root ('SUBMISSIONS/Lab 4/x.py'); tools use --cwd."""
+        try:
+            prefix = Path(self.workspace.cwd).resolve().relative_to(Path(self.workspace.repo_root).resolve())
+        except ValueError:
+            return path
+        parts = prefix.parts
+        if parts and path.parts[: len(parts)] == parts and not (self.root / path).exists():
+            return Path(*path.parts[len(parts):]) if len(path.parts) > len(parts) else Path(".")
+        return path
 
     def tool_list_files(self, args):
         path = self.path(args.get("path", "."))

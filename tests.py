@@ -152,11 +152,20 @@ class AgentTests(unittest.TestCase):
         self.assertIn("GRIDWORLD BODY", client.prompts[0])
         self.assertIn("QLEARNING BODY", client.prompts[0])
 
-    def test_skills_clear_on_next_request(self):
+    def test_followup_with_no_match_carries_previous_skills(self):
         agent, client = self.agent(["<final>a</final>", "<final>b</final>"])
         agent.ask("Review this PR for bugs")
         agent.ask("hello there")
+        self.assertIn("PR REVIEW BODY", client.prompts[1])
+        reasons = [e["reason"] for e in read_log(agent.skills.log_path) if e["event"] == "skill_executed"]
+        self.assertEqual(reasons, ["prompt_match", "carried_over"])
+
+    def test_new_matching_prompt_replaces_previous_skills(self):
+        agent, client = self.agent(["<final>a</final>", "<final>b</final>"])
+        agent.ask("Review this PR for bugs")
+        agent.ask("Train the vacuum robot with Q-learning")
         self.assertNotIn("PR REVIEW BODY", client.prompts[1])
+        self.assertIn("Active skill: q-learning", client.prompts[1])
 
 
 REAL_SKILLS = Path(__file__).parent / "skill"
@@ -254,6 +263,80 @@ class HookTests(unittest.TestCase):
     def test_hooks_can_be_disabled(self):
         agent = self.agent(["<final>ok</final>"], hooks=False)
         self.assertNotIn("run summary", self.run_ask(agent, "hello there"))
+
+
+@unittest.skipUnless(HAVE_AGENT, "mini_coding_agent.py not importable")
+class SubfolderOfGitRepoTests(unittest.TestCase):
+    """Regression: project in a subfolder of a bigger git repo (e.g. SUBMISSIONS/Lab 4)."""
+
+    def setUp(self):
+        import subprocess
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.repo = Path(self.tmp.name).resolve()
+        subprocess.run(["git", "init", "-q"], cwd=self.repo, check=True)
+        self.sub = self.repo / "SUBMISSIONS" / "Lab 4"
+        write_skills(self.sub / "skill")
+
+    def agent(self, outputs):
+        workspace = WorkspaceContext.build(self.sub)
+        store = SessionStore(self.repo / ".mini-coding-agent" / "sessions")
+        return MiniAgent(FakeModelClient(outputs), workspace, store, approval_policy="auto"), workspace
+
+    def test_skills_found_in_cwd_not_git_root(self):
+        agent, workspace = self.agent([])
+        self.assertEqual(Path(workspace.repo_root).resolve(), self.repo)  # confirms the trap
+        self.assertEqual(set(agent.skills.skills), set(SKILLS))
+
+    def test_file_tools_and_logs_land_in_cwd(self):
+        agent, _ = self.agent(['<tool name="write_file" path="sdlc/intent.md"><content># x</content></tool>',
+                               "<final>ok</final>"])
+        agent.ask("Review this PR for bugs")
+        self.assertTrue((self.sub / "sdlc" / "intent.md").is_file())
+        self.assertFalse((self.repo / "sdlc").exists())
+        self.assertTrue((self.sub / ".mini-coding-agent" / "logs" / "skills.jsonl").is_file())
+
+
+class ParserAndPathTests(unittest.TestCase):
+    @unittest.skipUnless(HAVE_AGENT, "mini_coding_agent.py not importable")
+    def test_parse_accepts_transcript_style_tool_call(self):
+        kind, payload = MiniAgent.parse('[tool:write_file] {"content": "hi", "path": "a.py"}')
+        self.assertEqual(kind, "tool")
+        self.assertEqual(payload, {"name": "write_file", "args": {"content": "hi", "path": "a.py"}})
+
+    @unittest.skipUnless(HAVE_AGENT, "mini_coding_agent.py not importable")
+    def test_parse_leaves_ordinary_text_as_final(self):
+        self.assertEqual(MiniAgent.parse("see [tool:x] for details")[0], "final")
+        self.assertEqual(MiniAgent.parse("[tool:write_file] {not json}")[0], "retry")
+
+
+@unittest.skipUnless(HAVE_AGENT, "mini_coding_agent.py not importable")
+class SubfolderBehaviorTests(SubfolderOfGitRepoTests):
+    def test_git_root_style_path_is_stripped(self):
+        agent, _ = self.agent(['<tool>{"name":"write_file","args":{"path":"SUBMISSIONS/Lab 4/q.py","content":"x"}}</tool>',
+                               "<final>ok</final>"])
+        agent.ask("hello there")
+        self.assertTrue((self.sub / "q.py").is_file())
+        self.assertFalse((self.sub / "SUBMISSIONS").exists())
+
+    def test_echoed_tool_format_really_writes(self):
+        agent, _ = self.agent(['[tool:write_file] {"content": "x", "path": "SUBMISSIONS/Lab 4/e.py"}',
+                               "<final>ok</final>"])
+        agent.ask("hello there")
+        self.assertTrue((self.sub / "e.py").is_file())
+
+    def test_skills_found_in_parent_folder_up_to_git_root(self):
+        import shutil
+        shutil.move(str(self.sub / "skill"), str(self.repo / "skill"))
+        agent, _ = self.agent([])
+        self.assertEqual(set(agent.skills.skills), set(SKILLS))
+
+    def test_nearest_skill_folder_wins(self):
+        (self.repo / "skill").mkdir()
+        write_skills(self.repo / "skill")
+        (self.repo / "skill" / "pr-review" / "skill.md").write_text("---\nname: pr-review\ndescription: x\n---\nOUTER\n")
+        agent, _ = self.agent([])
+        self.assertIn("PR REVIEW BODY", agent.skills.skills["pr-review"]["body"])
 
 
 if __name__ == "__main__":
