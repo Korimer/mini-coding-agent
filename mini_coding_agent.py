@@ -647,9 +647,18 @@ class MiniAgent:
         args = args or {}
 
         if name == "list_files":
-            path = self.path(args.get("path", "."))
+            raw = args.get("path", ".")
+            path = self.path(raw)
             if not path.is_dir():
-                raise ValueError("path is not a directory")
+                if path.is_file():
+                    hint = "it is a file; use read_file"
+                else:
+                    parent = path
+                    while not parent.is_dir() and parent != parent.parent:
+                        parent = parent.parent
+                    names = ", ".join(p.name for p in sorted(parent.iterdir())[:15])
+                    hint = f"does not exist; nearest existing folder {parent.relative_to(self.root) or '.'} contains: {names}"
+                raise ValueError(f"'{raw}' is not a directory ({hint})")
             return
 
         if name == "read_file":
@@ -702,9 +711,12 @@ class MiniAgent:
             return
 
         if name == "use_skill":
-            skill_name = str(args.get("name", "")).strip()
+            skill_name = str(args.get("name") or args.get("skill") or "").strip()
             if skill_name not in self.skills.skills:
-                raise ValueError(f"unknown skill '{skill_name}'; available: {', '.join(self.skills.skills) or 'none'}")
+                raise ValueError(
+                    f"unknown skill '{skill_name}'. Use args={{\"name\": \"<one of: {', '.join(self.skills.skills) or 'none'}>\"}}"
+                )
+            args["name"] = skill_name
             return
 
         if name == "delegate":
