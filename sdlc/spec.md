@@ -1,55 +1,30 @@
-# Spec: Implement Agent Skills Component for mini-coding-agent
+# Spec: Agent Skills component
 
-## Overview
-This specification details the implementation of an "agent skills" component that allows the agent to discover, match, and trigger skill folders based on user prompts.
+## Behavior
+- **S1 (C1, C6) Discovery.** `SkillRegistry.discover()` scans `skill/`. A folder holding `skill.md` is a skill; a flat `skill/<name>.md` is also accepted. A folder without `skill.md` is ignored. A missing `skill/` gives an empty registry.
+- **S2 (C1) Format.** `skill.md` starts with `---` frontmatter holding `name:` and `description:`, then the instructions. If `name` is missing the folder name is used.
+- **S3 (C1, C6) Similarity.** `match(prompt)` builds a bag-of-words vector of the prompt and of each skill's `name + description` (lowercase, stopwords removed, crude plural stemming), computes cosine similarity, and returns every skill with score >= threshold, best first. Default threshold 0.15.
+- **S4 (C2) Logging.** Each `match` appends a `similarity_check` line to `.mini-coding-agent/logs/skills.jsonl` with `ts, prompt, scores, threshold, selected`, even when nothing is selected.
+- **S5 (C2) Activation.** `MiniAgent.activate_skill(name, reason)` stores the skill as active, appends a `skill_executed` line (`skill, reason, score, path`), records it in the session under `skills_used`, and prints `[skill] <name> activated (<reason>)`. `reason` is `prompt_match` or `tool_request`.
+- **S6 (C1) Injection.** Active skills are added to every model prompt as `Active skill: <name>` followed by the skill body. Active skills are cleared at the start of each user request.
+- **S7 (C3) Tool.** `use_skill(name)` activates a skill mid-run. An unknown name returns `error: ...`. A skill that is already active returns a message instead of activating twice.
+- **S8 (C4) SDLC skill.** `skill/sdlc/skill.md` tells the agent to write `sdlc/intent.md, spec.md, plan.md, tasks.md, report.md` in that order, one `write_file` call each, with templates and these rules: use real names, read before overwrite, report only evidence that was seen.
+- **S9 (C5) Lab 5 skills.** `gridworld-env` writes `q_env.py`; `q-learning` writes `q_learning.py` and prints the policy and the greedy path; `code-review` reviews the result read-only.
 
-## Requirements
+## Interfaces
+- Files: `skills.py` (registry), `mini_coding_agent.py` (integration, section "7) Agent Skills Component"), `skill/<name>/skill.md`.
+- CLI: `--skills-dir` (default `skill`), `--skill-threshold` (default 0.15), `--approval auto` (needed so skills can call `write_file`), `--max-steps`.
+- REPL: `/skills` lists discovered skills.
+- Log: `.mini-coding-agent/logs/skills.jsonl`, one JSON object per line.
 
-### 1. Skill Discovery
-- Scan the `skills/` directory for subdirectories
-- Each subdirectory represents a skill
-- Parse `SKILL.md` from each skill folder to extract:
-  - Skill name/title
-  - Description
-  - Instructions/prompts to use
-
-### 2. Skill Matching
-- Take a user prompt and match it against skill descriptions
-- Use keyword-based or simple text similarity matching
-- Return the best-matching skill or None if no match found
-
-### 3. Integration with Agent Loop
-- Modify the agent's main loop to:
-  - Call skill discovery at the start of each turn
-  - Match the current prompt against discovered skills
-  - If a match is found, inject the skill's instructions into the context before processing
-
-## Implementation Details
-
-### Data Structures
-```python
-class Skill:
-    name: str
-    description: str
-    instructions: str
-    path: str
-```
-
-### Functions to Implement
-1. `discover_skills()` - Scans skills/ directory and returns list of Skill objects
-2. `match_skill(prompt: str) -> Optional[Skill]` - Matches prompt against skills
-3. `inject_skill_context(skill: Skill)` - Adds skill instructions to agent context
-
-### Files to Create/Modify
-- `skills/pr-review/SKILL.md` (new)
-- `mini_coding_agent.py` (modify: add skill discovery, matching, and integration logic)
-- `tests/test_skills.py` (new)
-
-## Testing
-- Test skill discovery with various folder structures
-- Test skill matching with different prompt types
-- Test integration with agent loop to ensure skills are injected correctly
-
-## Dependencies
-- No new external dependencies required
-- Use existing Python standard library for file operations and text processing
+## Acceptance tests
+| Spec | Input | Expected |
+|---|---|---|
+| S3 | "Train the vacuum robot with Q-learning" | selected = `q-learning`, `gridworld-env` |
+| S3 | "Follow the SDLC and write the intent spec plan tasks and report files in the sdlc folder" | selected = `sdlc` only |
+| S3 | "What is the weather like on Mars" | selected = [] and a log line exists |
+| S4 | any prompt | log line has prompt, scores for every skill, threshold |
+| S5 | prompt match | `skill_executed` with `reason: prompt_match` and a score |
+| S7 | model calls `use_skill` with `q-learning` | `skill_executed` with `reason: tool_request` |
+| S7 | `use_skill` with `nope` | result starts with `error:` |
+| S8 | SDLC prompt, approval auto | files appear under `sdlc/` |

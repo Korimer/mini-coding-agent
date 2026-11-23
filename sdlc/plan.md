@@ -1,46 +1,17 @@
-# Plan: Implement Agent Skills Component for mini-coding-agent
-
-## Overview
-This plan outlines the implementation of an "agent skills" component that allows the agent to discover, match, and trigger skill folders based on user prompts.
+# Plan: Agent Skills component
 
 ## Steps
+1. **Registry** (S1, S2, S3, S4): write `skills.py` with discovery, frontmatter parsing, cosine similarity, JSONL logging.
+2. **Agent integration** (S5, S6, S7): in `mini_coding_agent.py` add `skill_text`, `activate_skill`, the `use_skill` tool, the prompt section, the `--skills-dir` and `--skill-threshold` flags, and `/skills`.
+3. **Lab 5 skills** (S9): write `skill/gridworld-env`, `skill/q-learning`, `skill/code-review`.
+4. **SDLC skill** (S8): write `skill/sdlc/skill.md`; tune its description so SDLC prompts select it and Lab 4 prompts do not.
+5. **Tests** (all): unit tests in `tests.py` with temporary skills, plus tests against the real `skill/` folder.
+6. **Lab 4 run** (S9, C5): start the agent with `--approval auto --max-steps 12`, give it the Lab 4 prompt, check the log and the printed path.
+7. **Report**: fill `sdlc/report.md` from real output.
 
-### 1. Create Skill Folder Structure
-- Create `skills/` directory in the repo root
-- Create a sample skill folder `skills/pr-review/` with:
-  - `SKILL.md` containing skill description and instructions
-  - Optional helper files if needed
+## Files to create or change
+- New: `skills.py`, `skill/*/skill.md`, `sdlc/*.md`, `tests.py`
+- Changed: `mini_coding_agent.py`, `pyproject.toml` (add `skills` to `py-modules`)
 
-### 2. Implement Skill Discovery Function
-- Add a function to scan the `skills/` directory for subdirectories
-- Each subdirectory represents a skill
-- Parse `SKILL.md` from each skill folder to extract:
-  - Skill name/title
-  - Description
-  - Instructions/prompts to use
-
-### 3. Implement Skill Matching Logic
-- Create a function that takes a user prompt and matches it against skill descriptions
-- Use similarity-based matching (e.g., keyword matching or simple text similarity)
-- Return the best-matching skill or None if no match found
-
-### 4. Integrate Skills into Agent Loop
-- Modify the agent's main loop to:
-  - Call skill discovery at the start of each turn
-  - Match the current prompt against discovered skills
-  - If a match is found, inject the skill's instructions into the context before processing
-
-### 5. Add Tests
-- Write tests for:
-  - Skill discovery (ensure all skill folders are found)
-  - Skill matching (test with various prompts)
-  - Integration with the agent loop (ensure skills are injected correctly)
-
-## Files to Create/Modify
-- `skills/pr-review/SKILL.md` (new)
-- `mini_coding_agent.py` (modify: add skill discovery, matching, and integration logic)
-- `tests/test_skills.py` (new)
-
-## Dependencies
-- No new external dependencies required
-- Use existing Python standard library for file operations and text processing
+## Order and dependencies
+Step 1 before 2. Steps 3 and 4 need step 1 (they are read by it). Step 5 needs 1 to 4. Step 6 needs a running Ollama model and cannot be done without it.

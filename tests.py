@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from skill_registry import SkillRegistry
+from skills import SkillRegistry
 
 try:
     from mini_coding_agent import FakeModelClient, MiniAgent, SessionStore, WorkspaceContext
@@ -156,6 +156,43 @@ class AgentTests(unittest.TestCase):
         agent.ask("Review this PR for bugs")
         agent.ask("hello there")
         self.assertNotIn("PR REVIEW BODY", client.prompts[1])
+
+
+REAL_SKILLS = Path(__file__).parent / "skill"
+
+
+class RealSkillFolderTests(unittest.TestCase):
+    """Run the similarity check against the skills actually shipped in skill/."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.reg = SkillRegistry(REAL_SKILLS, Path(self.tmp.name) / "skills.jsonl")
+
+    def test_sdlc_skill_is_discovered_with_required_sections(self):
+        self.assertIn("sdlc", self.reg.skills)
+        body = self.reg.skills["sdlc"]["body"]
+        for stage in ("intent.md", "spec.md", "plan.md", "tasks.md", "report.md"):
+            self.assertIn(stage, body)
+
+    def test_sdlc_prompts_select_only_sdlc(self):
+        for prompt in (
+            "Follow the SDLC and write the intent spec plan tasks and report files in the sdlc folder",
+            "Write the sdlc documents for this project",
+        ):
+            self.assertEqual(self.reg.match(prompt), ["sdlc"], prompt)
+
+    def test_lab4_prompts_do_not_select_sdlc(self):
+        for prompt in (
+            "Train the vacuum robot with Q-learning",
+            "Implement Q-learning for the vacuum robot grid world and run it",
+        ):
+            selected = self.reg.match(prompt)
+            self.assertNotIn("sdlc", selected, prompt)
+            self.assertIn("q-learning", selected, prompt)
+
+    def test_unrelated_prompt_selects_nothing(self):
+        self.assertEqual(self.reg.match("What is the weather like on Mars"), [])
 
 
 if __name__ == "__main__":
