@@ -7,14 +7,14 @@ description: Build the 4x4 vacuum robot grid world environment with start, wall,
 Deliverable: q_env.py (standard library only). It defines the world only. It does not learn anything.
 
 ## Layout
-- Positions are (x, y): x = column from the left, y = row from the bottom, both from 0. Store the grid as gridValues[x][y]. Never index as [row][column].
-- Literal grid, top row first (y=3 down to y=0):
-  - y=3: 0 0 0 0
-  - y=2: 0 X 0 0
-  - y=1: 0 0 0 0
-  - y=0: 0 -1 0 10
-- Build gridValues from the literal with: gridValues = [[literal[3-y][x] for y in range(4)] for x in range(4)]. So gridValues[0][3] is the top left and gridValues[0][0] is the bottom left.
-- Start (0, 3). Wall "X" at (1, 2), cannot be entered. Trap (1, 0) = -1. Recharge spot (3, 0) = +10. Trap and recharge spot are terminal.
+- Write the literal grid as a Python list of lists, top row first (y=3 down to y=0). Never store it as strings.
+  GRID_LITERAL = [
+      [0, 0, 0, 0],
+      [0, "X", 0, 0],
+      [0, 0, 0, 0],
+      [0, -1, 0, 10],
+  ]
+- Build gridValues from it with: gridValues = [[GRID_LITERAL[3 - y][x] for y in range(4)] for x in range(4)]. So gridValues[0][3] is the top left (start) and gridValues[3][0] is the recharge spot.
 
 ## Moves
 - Actions: Up (0,1), Down (0,-1), Left (-1,0), Right (1,0).
@@ -32,7 +32,7 @@ Deliverable: q_env.py (standard library only). It defines the world only. It doe
 1. If a reference file such as lab4_vacuum.py exists, read it with read_file and reuse the layout.
 2. Do not use the aima package, %pip or notebook magics. Write plain Python.
 3. Write q_env.py with write_file.
-4. Check it with run_shell: python -c "import q_env; print(q_env.step((0,3),'Down'))". Expect ((0, 2), -0.04, False).
+4. Check it with run_shell: python -c "import q_env; print(q_env.step((0,3),(0,-1)))". Expect ((0, 2), -0.04, False).
 5. If the Q-learning algorithm is needed next, call use_skill with q-learning.
 
 ## Pitfalls
