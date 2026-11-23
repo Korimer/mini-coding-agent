@@ -8,7 +8,7 @@ Deliverable: q_learning.py. It imports the environment from q_env.py. If q_env.p
 
 ## Algorithm
 - The agent never uses T or R directly. It only sees what step() returns.
-- Q is a defaultdict(float) keyed by (state, action). All values start at 0.
+- Q is a defaultdict(float) keyed by (state, action), defined once at the top of q_learning.py (outside every function), so train() and best_action() use the same table. All values start at 0.
 - After each move from s with action a to s' with reward r:
   - if s' is terminal: target = r
   - otherwise: target = r + GAMMA * max over a' of Q[(s', a')]
@@ -32,7 +32,6 @@ Deliverable: q_learning.py. It imports the environment from q_env.py. If q_env.p
 5. Finish with a short summary: hyperparameters used, whether the path reaches (3, 0), and how many moves it took.
 
 ## Pitfalls
-- Reset prev_state and prev_action at the start of every episode.
-- Terminal states have no future value, so use target = r, not r + gamma * max Q.
+- Update Q[(state, action)] right after calling step(), for the move just made. Do not keep prev_state or prev_action variables.- Terminal states have no future value, so use target = r, not r + gamma * max Q.
 - A greedy run can loop when Q-values are tied. Always cap it with a step limit.
 - If the path does not reach (3, 0), raise EPISODES or add epsilon decay and run again.
