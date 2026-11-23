@@ -32,6 +32,7 @@ Deliverable: q_learning.py. It imports the environment from q_env.py. If q_env.p
 5. Finish with a short summary: hyperparameters used, whether the path reaches (3, 0), and how many moves it took.
 
 ## Pitfalls
-- Update Q[(state, action)] right after calling step(), for the move just made. Do not keep prev_state or prev_action variables.- Terminal states have no future value, so use target = r, not r + gamma * max Q.
+- Update Q[(state, action)] right after calling step(), for the move just made. Do not keep prev_state or prev_action variables.
+- Terminal states have no future value, so use target = r, not r + gamma * max Q.
 - A greedy run can loop when Q-values are tied. Always cap it with a step limit.
 - If the path does not reach (3, 0), raise EPISODES or add epsilon decay and run again.
