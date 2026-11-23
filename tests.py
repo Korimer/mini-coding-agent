@@ -3,6 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from hooks import HookRegistry
 from skills import SkillRegistry
 
 try:
@@ -193,6 +194,66 @@ class RealSkillFolderTests(unittest.TestCase):
 
     def test_unrelated_prompt_selects_nothing(self):
         self.assertEqual(self.reg.match("What is the weather like on Mars"), [])
+
+
+class HookTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        self.log = self.root / ".mini-coding-agent" / "logs" / "hooks.jsonl"
+
+    def agent(self, outputs, **kwargs):
+        write_skills(self.root / "skill")
+        workspace = WorkspaceContext.build(self.root)
+        store = SessionStore(self.root / ".mini-coding-agent" / "sessions")
+        return MiniAgent(FakeModelClient(outputs), workspace, store, approval_policy="auto",
+                         skills_dir="skill", **kwargs)
+
+    def run_ask(self, agent, prompt):
+        import contextlib, io
+        buffer = io.StringIO()
+        with contextlib.redirect_stdout(buffer):
+            agent.ask(prompt)
+        return buffer.getvalue()
+
+    def test_unknown_event_rejected(self):
+        with self.assertRaises(ValueError):
+            HookRegistry(self.log).register("nope", print)
+
+    def test_failing_hook_is_logged_and_does_not_raise(self):
+        reg = HookRegistry(self.log)
+        reg.register("post_run", lambda payload: 1 / 0, name="boom")
+        reg.run("post_run", {})
+        entry = read_log(self.log)[0]
+        self.assertEqual((entry["hook"], entry["status"]), ("boom", "error"))
+
+    @unittest.skipUnless(HAVE_AGENT, "mini_coding_agent.py not importable")
+    def test_post_run_prints_summary_with_tools_and_skills(self):
+        agent = self.agent([
+            '<tool name="write_file" path="a.txt"><content>hi</content></tool>',
+            "<final>done</final>",
+        ])
+        out = self.run_ask(agent, "Review this PR for bugs")
+        self.assertIn("run summary", out)
+        self.assertIn("status : answered (1 tool call(s)", out)
+        self.assertIn("skills : pr-review", out)
+        self.assertIn("1. write_file -> wrote a.txt", out)
+        entry = read_log(self.log)[-1]
+        self.assertEqual((entry["hook_event"], entry["hook"], entry["status"]),
+                         ("post_run", "print_run_summary", "ok"))
+
+    @unittest.skipUnless(HAVE_AGENT, "mini_coding_agent.py not importable")
+    def test_step_limit_reports_stopped(self):
+        agent = self.agent(['<tool>{"name":"list_files","args":{"path":"."}}</tool>',
+                            '<tool>{"name":"read_file","args":{"path":"skill/pr-review/skill.md"}}</tool>'],
+                           max_steps=2)
+        self.assertIn("status : stopped", self.run_ask(agent, "hello there"))
+
+    @unittest.skipUnless(HAVE_AGENT, "mini_coding_agent.py not importable")
+    def test_hooks_can_be_disabled(self):
+        agent = self.agent(["<final>ok</final>"], hooks=False)
+        self.assertNotIn("run summary", self.run_ask(agent, "hello there"))
 
 
 if __name__ == "__main__":

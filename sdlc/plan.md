@@ -7,11 +7,12 @@
 4. **SDLC skill** (S8): write `skill/sdlc/skill.md`; tune its description so SDLC prompts select it and Lab 4 prompts do not.
 5. **Tests** (all): unit tests in `tests.py` with temporary skills, plus tests against the real `skill/` folder.
 6. **Lab 4 run** (S9, C5): start the agent with `--approval auto --max-steps 12`, give it the Lab 4 prompt, check the log and the printed path.
-7. **Report**: fill `sdlc/report.md` from real output.
+7. **Hooks** (S10): write `hooks.py`, wrap `ask()` so `post_run` fires after the loop, add `--no-hooks`, add tests.
+8. **Report**: fill `sdlc/report.md` from real output.
 
 ## Files to create or change
-- New: `skills.py`, `skill/*/skill.md`, `sdlc/*.md`, `tests.py`
-- Changed: `mini_coding_agent.py`, `pyproject.toml` (add `skills` to `py-modules`)
+- New: `skills.py`, `hooks.py`, `skill/*/skill.md`, `sdlc/*.md`, `tests.py`
+- Changed: `mini_coding_agent.py`, `pyproject.toml` (add `skills` and `hooks` to `py-modules`)
 
 ## Order and dependencies
 Step 1 before 2. Steps 3 and 4 need step 1 (they are read by it). Step 5 needs 1 to 4. Step 6 needs a running Ollama model and cannot be done without it.

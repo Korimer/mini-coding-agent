@@ -5,11 +5,13 @@ import re
 import shutil
 import subprocess
 import sys
+import time
 import urllib.error
 import urllib.request
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
+from hooks import HookRegistry, print_run_summary
 from skills import SkillRegistry
 
 
@@ -240,6 +242,7 @@ class MiniAgent:
         read_only=False,
         skills_dir="skill",
         skill_threshold=0.15,
+        hooks=True,
     ):
         self.model_client = model_client
         self.workspace = workspace
@@ -257,6 +260,9 @@ class MiniAgent:
             skill_threshold,
         )
         self.active_skills = {}
+        self.hooks = HookRegistry(self.root / ".mini-coding-agent" / "logs" / "hooks.jsonl")
+        if hooks and depth == 0:  # sub-agents (delegate) do not print their own summary
+            self.hooks.register("post_run", print_run_summary, name="print_run_summary")
         self.session = session or {
             "id": datetime.now().strftime("%Y%m%d-%H%M%S") + "-" + uuid.uuid4().hex[:6],
             "created_at": now(),
@@ -503,7 +509,28 @@ class MiniAgent:
         note = f"{name}: {clip(str(result).replace(chr(10), ' '), 220)}"
         self.remember(memory["notes"], note, 5)
 
+    #############################
+    #### 8) Hooks Component #####
+    #############################
     def ask(self, user_message):
+        start = len(self.session["history"])
+        started = time.time()
+        final = self._ask(user_message)
+        self.hooks.run("post_run", {
+            "prompt": user_message,
+            "final": final,
+            "status": "stopped" if final.startswith("Stopped after") else "answered",
+            "skills": list(self.active_skills),
+            "tools": [
+                {"name": item["name"], "args": item["args"], "result": item["content"]}
+                for item in self.session["history"][start:]
+                if item["role"] == "tool"
+            ],
+            "seconds": time.time() - started,
+        })
+        return final
+
+    def _ask(self, user_message):
         memory = self.session["memory"]
         if not memory["task"]:
             memory["task"] = clip(user_message.strip(), 300)
@@ -1005,6 +1032,7 @@ def build_agent(args):
             max_new_tokens=args.max_new_tokens,
             skills_dir=args.skills_dir,
             skill_threshold=args.skill_threshold,
+            hooks=not args.no_hooks,
         )
     return MiniAgent(
         model_client=model,
@@ -1015,6 +1043,7 @@ def build_agent(args):
         max_new_tokens=args.max_new_tokens,
         skills_dir=args.skills_dir,
         skill_threshold=args.skill_threshold,
+        hooks=not args.no_hooks,
     )
 
 
@@ -1042,6 +1071,8 @@ def build_arg_parser():
 
     parser.add_argument("--skills-dir", default="skill", help="Folder containing skills (skill/<name>/skill.md).")
     parser.add_argument("--skill-threshold", type=float, default=0.15, help="Minimum similarity to trigger a skill.")
+
+    parser.add_argument("--no-hooks", action="store_true", help="Disable hooks (the post_run run summary).")
 
     return parser
 

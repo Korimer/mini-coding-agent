@@ -21,6 +21,7 @@ A vacuum robot learns to move on a 4x4 grid with Q-learning, with no transition 
 - [ ] C4: "Follow the SDLC ..." triggers only the `sdlc` skill, and that skill leads to five files in `sdlc/`: intent, spec, plan, tasks, report.
 - [ ] C5: Lab 4 is solved through the agent: policy grid and greedy path printed, path avoids the wall and the trap.
 - [ ] C6: Only the standard library is used for matching.
+- [ ] C7: A `post_run` hook prints a summary of every run and logs that it ran.
 
 ## Non-goals
 - No embedding models or external services.
@@ -28,7 +29,7 @@ A vacuum robot learns to move on a 4x4 grid with Q-learning, with no transition 
 - No MCP integration.
 
 ## Course constraint
-Use 3 of 4 features: hooks, MCP, skills, sub-agents. Chosen: **skills** (this work), **sub-agents** (the existing read-only `delegate` tool), **hooks** (not yet built, see report.md). Not chosen: MCP.
+Use 3 of 4 features: hooks, MCP, skills, sub-agents. Chosen: **skills** (this work), **sub-agents** (the existing read-only `delegate` tool), **hooks** (a `post_run` hook, see spec S10). Not chosen: MCP.
 
 ## Risks
 | Risk | Mitigation |
